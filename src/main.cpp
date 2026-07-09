@@ -1,20 +1,13 @@
 #include "bank.h"
-#include "camera.h"
 #include "company.h"
 #include "economy.h"
 #include "factory.h"
 #include "farm.h"
 #include "marketplace.h"
-#include "render_charts.h"
-#include "render_map.h"
-#include "render_ui.h"
-#include "sprites.h"
 #include "terrain.h"
 #include "town_map.h"
-#include "ui_popup.h"
 #include "water.h"
 
-#include "raylib.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1808,101 +1801,6 @@ void AdvanceSimulationDay(Simulation& sim) {
     CapturePeriodicOutputs(sim);
 }
 
-void DrawSimulation(const Simulation& sim, Camera2D& camera, V4Tab tab) {
-    BeginDrawing();
-    ClearBackground(Color{18, 24, 22, 255});
-    const int width = GetScreenWidth();
-    const int height = GetScreenHeight();
-    if (tab == V4Tab::Map) {
-        BeginMode2D(camera);
-        town::DrawTownMapBase(town::GetTownMap(), Rectangle{-400.0f, -300.0f, 1800.0f, 1200.0f});
-        for (const auto& resident : sim.residents) {
-            Color color = resident.employed ? Color{54, 170, 112, 255} : Color{210, 156, 74, 255};
-            DrawCircleV(resident.position, 4.5f, color);
-        }
-        EndMode2D();
-    } else {
-        DrawRectangle(0, 42, width, height - 42, Color{22, 29, 28, 255});
-        DrawRectangle(32, 76, width - 64, height - 112, Color{28, 36, 34, 255});
-        DrawRectangleLines(32, 76, width - 64, height - 112, Color{75, 92, 88, 255});
-        const char* title = "Daily";
-        if (tab == V4Tab::GDP) title = "GDP";
-        if (tab == V4Tab::Prices) title = "Prices";
-        if (tab == V4Tab::Stocks) title = "Stocks";
-        if (tab == V4Tab::Wealth) title = "Wealth";
-        DrawText(title, 52, 96, 24, RAYWHITE);
-
-        if (tab == V4Tab::GDP) {
-            DrawText(TextFormat("GDP today %.2f   unemployment %.1f%%   policy %.2f%%",
-                                sim.gdp, sim.unemployment * 100.0, sim.centralBank.policyRate * 100.0), 52, 136, 20, RAYWHITE);
-            DrawText(TextFormat("Bank deposits %.2f   reserves %.2f   CAR %.2f",
-                                sim.bank.deposits, sim.bank.reserves, sim.bank.CapitalAdequacyRatio()), 52, 172, 20, RAYWHITE);
-        } else if (tab == V4Tab::Prices) {
-            int y = 136;
-            for (int i = 0; i < static_cast<int>(sim.goods.size()) && i < 18; ++i) {
-                const auto& good = sim.goods[i];
-                DrawText(TextFormat("%-12s price %.2f  vwap %.2f  fills %d  stale %d",
-                                    good.id.c_str(), good.price, good.vwap, good.fillCount, good.staleTicks), 52, y, 18, RAYWHITE);
-                y += 26;
-            }
-        } else if (tab == V4Tab::Stocks) {
-            int y = 136;
-            for (const auto& listing : sim.exchange.listings) {
-                DrawText(TextFormat("%-6s price %.2f  fills %d  volume %.2f",
-                                    listing.symbol.c_str(), listing.price, listing.fills, listing.tradedShares), 52, y, 18, RAYWHITE);
-                y += 28;
-            }
-        } else if (tab == V4Tab::Wealth) {
-            std::vector<double> wealth;
-            wealth.reserve(sim.residents.size());
-            for (const auto& resident : sim.residents) wealth.push_back(resident.money + resident.savings);
-            std::sort(wealth.begin(), wealth.end());
-            const double median = wealth.empty() ? 0.0 : wealth[wealth.size() / 2];
-            const double top = wealth.empty() ? 0.0 : wealth.back();
-            DrawText(TextFormat("median wealth %.2f   top wealth %.2f   insurance float %.2f",
-                                median, top, sim.insurance.investedFloat), 52, 136, 20, RAYWHITE);
-        } else {
-            DrawText(TextFormat("bargain success %d  failures %d  avg rounds %.2f",
-                                sim.bargainSuccess, sim.bargainFailures,
-                                (sim.bargainSuccess + sim.bargainFailures) > 0
-                                    ? static_cast<double>(sim.bargainRounds) / (sim.bargainSuccess + sim.bargainFailures)
-                                    : 0.0), 52, 136, 20, RAYWHITE);
-            DrawText(TextFormat("tax %.2f%%  treasury %.2f  revenue %.2f  spending %.2f",
-                                sim.government.taxRate * 100.0, sim.government.treasury,
-                                sim.government.revenueToday, sim.government.spendingToday), 52, 172, 20, RAYWHITE);
-            DrawText(TextFormat("500d balance %.2f  surplus %d  deficit %d",
-                                sim.government.lastAccountingWindowBalance,
-                                sim.government.surplusWindows, sim.government.deficitWindows), 52, 208, 20, RAYWHITE);
-            DrawText(TextFormat("market fills %d  stock fills %d  arbitrage %d",
-                                sim.marketplace.totalTrades, sim.exchange.stockFills, sim.arbitrageTrades), 52, 244, 20, RAYWHITE);
-        }
-    }
-
-    DrawRectangle(0, 0, width, 42, Color{30, 38, 36, 240});
-    DrawText(TextFormat("TownMarket V5 recovery | day %d | GDP %.1f | ledger.unbalanced=%d",
-                        sim.day, sim.gdp, sim.ledgerUnbalanced), 12, 12, 18, RAYWHITE);
-    const char* labels[] = {"1 Map", "2 GDP", "3 Prices", "4 Stocks", "5 Wealth", "6 Daily"};
-    for (int i = 0; i < 6; ++i) {
-        const bool active = static_cast<int>(tab) == i;
-        Rectangle r{520.0f + i * 94.0f, 7.0f, 84.0f, 28.0f};
-        DrawRectangleRec(r, active ? Color{74, 118, 104, 255} : Color{44, 54, 52, 255});
-        DrawRectangleLinesEx(r, 1.0f, Color{105, 124, 118, 255});
-        DrawText(labels[i], static_cast<int>(r.x + 9), static_cast<int>(r.y + 7), 14, RAYWHITE);
-    }
-    if (sim.selectedResident >= 0 && sim.selectedResident < static_cast<int>(sim.residents.size())) {
-        const auto& resident = sim.residents[sim.selectedResident];
-        Rectangle card{static_cast<float>(width - 300), 58.0f, 276.0f, 148.0f};
-        DrawRectangleRec(card, Color{35, 43, 41, 245});
-        DrawRectangleLinesEx(card, 1.0f, Color{120, 140, 132, 255});
-        DrawText(resident.name.c_str(), static_cast<int>(card.x + 14), static_cast<int>(card.y + 14), 18, RAYWHITE);
-        DrawText(TextFormat("cash %.2f  savings %.2f", resident.money, resident.savings),
-                 static_cast<int>(card.x + 14), static_cast<int>(card.y + 46), 16, RAYWHITE);
-        DrawText(TextFormat("hunger %.2f  thirst %.2f", resident.hunger, resident.thirst),
-                 static_cast<int>(card.x + 14), static_cast<int>(card.y + 74), 16, RAYWHITE);
-        DrawText(TextFormat("employer %d", resident.employer),
-                 static_cast<int>(card.x + 14), static_cast<int>(card.y + 102), 16, RAYWHITE);
-    }
-    EndDrawing();
 }
 
 int ParseTicks(int argc, char** argv) {
@@ -1967,58 +1865,5 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(1280, 760, "TownMarket V5 Recovery");
-    SetTargetFPS(60);
-
-    Camera2D camera{};
-    camera.target = Vector2{640.0f, 380.0f};
-    camera.offset = Vector2{640.0f, 380.0f};
-    camera.zoom = 1.0f;
-    V4Tab tab = V4Tab::Map;
-
-    while (!WindowShouldClose()) {
-        if (IsKeyPressed(KEY_ONE)) tab = V4Tab::Map;
-        if (IsKeyPressed(KEY_TWO)) tab = V4Tab::GDP;
-        if (IsKeyPressed(KEY_THREE)) tab = V4Tab::Prices;
-        if (IsKeyPressed(KEY_FOUR)) tab = V4Tab::Stocks;
-        if (IsKeyPressed(KEY_FIVE)) tab = V4Tab::Wealth;
-        if (IsKeyPressed(KEY_SIX)) tab = V4Tab::Daily;
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            Vector2 mouse = GetMousePosition();
-            for (int i = 0; i < 6; ++i) {
-                Rectangle r{520.0f + i * 94.0f, 7.0f, 84.0f, 28.0f};
-                if (CheckCollisionPointRec(mouse, r)) {
-                    tab = static_cast<V4Tab>(i);
-                }
-            }
-            if (tab == V4Tab::Map) {
-                Vector2 world = GetScreenToWorld2D(mouse, camera);
-                int picked = -1;
-                float best = 12.0f / std::max(0.5f, camera.zoom);
-                for (const auto& resident : sim.residents) {
-                    const float distance = std::hypot(world.x - resident.position.x, world.y - resident.position.y);
-                    if (distance < best) {
-                        best = distance;
-                        picked = resident.id;
-                    }
-                }
-                sim.selectedResident = picked;
-            }
-        }
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            Vector2 delta = GetMouseDelta();
-            camera.target.x -= delta.x / camera.zoom;
-            camera.target.y -= delta.y / camera.zoom;
-        }
-        const float wheel = GetMouseWheelMove();
-        if (wheel != 0.0f) {
-            camera.zoom = std::clamp(camera.zoom + wheel * 0.08f, 0.5f, 3.0f);
-        }
-        AdvanceSimulationDay(sim);
-        DrawSimulation(sim, camera, tab);
-    }
-
-    CloseWindow();
     return 0;
 }
